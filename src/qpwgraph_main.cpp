@@ -1324,7 +1324,7 @@ void qpwgraph_main::editCreateVirtualSink (void)
 		tr("Create Virtual Sink"),
 		tr("Enter sink name:"),
 		QLineEdit::Normal,
-		"Virtual-Mic",
+		"Virtual-Sink",
 		&ok);
 
 	if (!ok || sinkName.isEmpty())
@@ -1396,7 +1396,7 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 	QStringList moduleLines = QString::fromUtf8(moduleOutput).split('\n', Qt::SkipEmptyParts);
 
 	// Extract sink names and module IDs from module-null-sink modules
-	// Format: MODULE_ID\tmodule-null-sink\tPROPERTIES (e.g., sink_name=Virtual-Mic ...)
+	// Format: MODULE_ID\tmodule-null-sink\tPROPERTIES (e.g., sink_name=Virtual-Sink ...)
 	QStringList virtualSinks;
 	QMap<QString, QString> sinkToModuleId; // sink name -> module ID
 
@@ -1407,7 +1407,7 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 			QString moduleInfo = parts[2]; // Properties are in the third column
 
 			// Extract sink_name from module info
-			// The format is: "media.class=Audio/Sink sink_name=Virtual-Mic channel_map=..."
+			// The format is: "media.class=Audio/Sink sink_name=Virtual-Sink channel_map=..."
 			QString sinkName;
 			
 			// Find sink_name= in the module info string
