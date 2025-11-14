@@ -1,5 +1,16 @@
 # qpwgraph - A PipeWire Graph Qt GUI Interface
 
+**This is a fork of https://github.com/rncbc/qpwgraph/**
+The only added functionality of this fork is Virtual Sink support.
+
+You can create and remove virtual sinks from the edit menu.
+
+Is this code terrible? Yes.
+
+Does it work? I hope so.
+
+
+
 ![Screenshot](src/images/qpwgraph_screenshot-4.png)
 
   **qpwgraph** is a graph manager dedicated to [PipeWire](https://pipewire.org),
@@ -58,4 +69,5 @@
 ## Copyright
 
   Copyright (C) 2021-2025, rncbc aka Rui Nuno Capela. All rights reserved.
+
 
