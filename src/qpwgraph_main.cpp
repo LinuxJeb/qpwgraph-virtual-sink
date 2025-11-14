@@ -1375,9 +1375,9 @@ void qpwgraph_main::editCreateVirtualSink (void)
 
 void qpwgraph_main::editRemoveVirtualSink (void)
 {
-	// List all modules to find module-null-sink instances
+	// List all modules to find module-null-sink instances using grep
 	QProcess moduleProcess;
-	moduleProcess.start("pactl", QStringList() << "list" << "short" << "modules");
+	moduleProcess.start("sh", QStringList() << "-c" << "pactl list short modules | grep module-null-sink");
 	if (!moduleProcess.waitForFinished(5000)) {
 		QMessageBox::warning(this, tr("Error"),
 			tr("Failed to list modules:\n\nTimeout waiting for pactl."));
@@ -1396,53 +1396,51 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 	QStringList moduleLines = QString::fromUtf8(moduleOutput).split('\n', Qt::SkipEmptyParts);
 
 	// Extract sink names and module IDs from module-null-sink modules
+	// Format: MODULE_ID\tmodule-null-sink\tPROPERTIES (e.g., sink_name=Virtual-Mic ...)
 	QStringList virtualSinks;
 	QMap<QString, QString> sinkToModuleId; // sink name -> module ID
 
 	for (const QString& moduleLine : moduleLines) {
-		if (moduleLine.contains("module-null-sink")) {
-			QStringList parts = moduleLine.split('\t');
-			if (parts.size() >= 2) {
-				QString moduleId = parts[0];
-				QString moduleInfo = parts[1];
+		QStringList parts = moduleLine.split('\t');
+		if (parts.size() >= 3) {
+			QString moduleId = parts[0];
+			QString moduleInfo = parts[2]; // Properties are in the third column
 
-				// Extract sink_name from module info
-				// The format is: "module-null-sink sink_name=... media.class=..."
-				// Handle cases where sink_name might be quoted or have special chars
-				QString sinkName;
+			// Extract sink_name from module info
+			// The format is: "media.class=Audio/Sink sink_name=Virtual-Mic channel_map=..."
+			QString sinkName;
+			
+			// Find sink_name= in the module info string
+			int sinkNamePos = moduleInfo.indexOf("sink_name=");
+			if (sinkNamePos >= 0) {
+				// Start after "sink_name="
+				int startPos = sinkNamePos + 10;
+				int endPos = startPos;
 				
-				// Find sink_name= in the module info string
-				int sinkNamePos = moduleInfo.indexOf("sink_name=");
-				if (sinkNamePos >= 0) {
-					// Start after "sink_name="
-					int startPos = sinkNamePos + 10;
-					int endPos = startPos;
-					
-					// Find the end of the sink_name value (next space or end of string)
-					while (endPos < moduleInfo.length() && moduleInfo[endPos] != ' ') {
-						endPos++;
-					}
-					
-					sinkName = moduleInfo.mid(startPos, endPos - startPos);
+				// Find the end of the sink_name value (next space or end of string)
+				while (endPos < moduleInfo.length() && moduleInfo[endPos] != ' ') {
+					endPos++;
 				}
-
-				// If no sink_name parameter, check if we have a stored name for this module ID
-				if (sinkName.isEmpty()) {
-					if (m_virtual_sink_modules.contains(moduleId)) {
-						sinkName = m_virtual_sink_modules[moduleId];
-					} else {
-						sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
-					}
-				} else {
-					// Store the association if we don't have it yet
-					if (!m_virtual_sink_modules.contains(moduleId)) {
-						m_virtual_sink_modules[moduleId] = sinkName;
-					}
-				}
-
-				virtualSinks.append(sinkName);
-				sinkToModuleId[sinkName] = moduleId;
+				
+				sinkName = moduleInfo.mid(startPos, endPos - startPos);
 			}
+
+			// If no sink_name parameter, check if we have a stored name for this module ID
+			if (sinkName.isEmpty()) {
+				if (m_virtual_sink_modules.contains(moduleId)) {
+					sinkName = m_virtual_sink_modules[moduleId];
+				} else {
+					sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
+				}
+			} else {
+				// Store the association if we don't have it yet
+				if (!m_virtual_sink_modules.contains(moduleId)) {
+					m_virtual_sink_modules[moduleId] = sinkName;
+				}
+			}
+
+			virtualSinks.append(sinkName);
+			sinkToModuleId[sinkName] = moduleId;
 		}
 	}
 
