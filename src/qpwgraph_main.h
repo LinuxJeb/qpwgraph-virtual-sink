@@ -98,7 +98,8 @@ protected slots:
 
 	// Virtual sink management slots.
 	void editCreateVirtualSink();
-	void editRemoveVirtualSink();
+	void editCreateVirtualMic();
+	void editRemoveVirtualAudioDevice();
 
 	// Graph view change slot.
 	void changed();

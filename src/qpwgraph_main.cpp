@@ -339,9 +339,12 @@ qpwgraph_main::qpwgraph_main (
 	QObject::connect(m_ui.editCreateVirtualSinkAction,
 		SIGNAL(triggered(bool)),
 		SLOT(editCreateVirtualSink()));
-	QObject::connect(m_ui.editRemoveVirtualSinkAction,
+	QObject::connect(m_ui.editCreateVirtualMicAction,
 		SIGNAL(triggered(bool)),
-		SLOT(editRemoveVirtualSink()));
+		SLOT(editCreateVirtualMic()));
+	QObject::connect(m_ui.editRemoveVirtualAudioDeviceAction,
+		SIGNAL(triggered(bool)),
+		SLOT(editRemoveVirtualAudioDevice()));
 
 	QObject::connect(m_ui.viewMenubarAction,
 		SIGNAL(triggered(bool)),
@@ -1373,7 +1376,63 @@ void qpwgraph_main::editCreateVirtualSink (void)
 }
 
 
-void qpwgraph_main::editRemoveVirtualSink (void)
+void qpwgraph_main::editCreateVirtualMic (void)
+{
+	bool ok;
+	QString micName = QInputDialog::getText(this,
+		tr("Create Virtual Mic"),
+		tr("Enter mic name:"),
+		QLineEdit::Normal,
+		"Virtual-Mic",
+		&ok);
+
+	if (!ok || micName.isEmpty())
+		return;
+
+	// Sanitize the mic name (remove spaces, special chars)
+	micName = micName.simplified().replace(' ', '-');
+
+	QProcess process;
+	QStringList arguments;
+	arguments << "load-module" << "module-null-sink"
+	          << "media.class=Audio/Source/Virtual"
+	          << QString("sink_name=%1").arg(micName)
+	          << "channel_map=front-left,front-right";
+
+	process.start("pactl", arguments);
+	if (!process.waitForFinished(5000)) {
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to create virtual mic:\n\n%1\n\nTimeout waiting for pactl.").arg(micName));
+		return;
+	}
+
+	if (process.exitCode() != 0) {
+		QByteArray errorOutput = process.readAllStandardError();
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to create virtual mic:\n\n%1\n\n%2")
+				.arg(micName)
+				.arg(QString::fromUtf8(errorOutput)));
+		return;
+	}
+
+	// Capture the module ID from the output
+	QByteArray output = process.readAllStandardOutput();
+	QString moduleId = QString::fromUtf8(output).trimmed();
+	
+	// Store the association between module ID and mic name
+	if (!moduleId.isEmpty()) {
+		m_virtual_sink_modules[moduleId] = micName;
+	}
+
+	// Refresh the view to show the new mic
+	viewRefresh();
+
+	m_ui.StatusBar->showMessage(
+		tr("Virtual mic '%1' created successfully (Module ID: %2)").arg(micName).arg(moduleId), 3000);
+}
+
+
+void qpwgraph_main::editRemoveVirtualAudioDevice (void)
 {
 	// List all modules to find module-null-sink instances using grep
 	QProcess moduleProcess;
@@ -1395,10 +1454,10 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 	QByteArray moduleOutput = moduleProcess.readAllStandardOutput();
 	QStringList moduleLines = QString::fromUtf8(moduleOutput).split('\n', Qt::SkipEmptyParts);
 
-	// Extract sink names and module IDs from module-null-sink modules
-	// Format: MODULE_ID\tmodule-null-sink\tPROPERTIES (e.g., sink_name=Virtual-Sink ...)
-	QStringList virtualSinks;
-	QMap<QString, QString> sinkToModuleId; // sink name -> module ID
+	// Extract device names and module IDs from module-null-sink modules
+	// Format: MODULE_ID\tmodule-null-sink\tPROPERTIES (e.g., sink_name=Virtual-Sink or sink_name=Virtual-Mic ...)
+	QStringList virtualDevices;
+	QMap<QString, QString> deviceToModuleId; // device name -> module ID
 
 	for (const QString& moduleLine : moduleLines) {
 		QStringList parts = moduleLine.split('\t');
@@ -1407,8 +1466,9 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 			QString moduleInfo = parts[2]; // Properties are in the third column
 
 			// Extract sink_name from module info
-			// The format is: "media.class=Audio/Sink sink_name=Virtual-Sink channel_map=..."
-			QString sinkName;
+			// The format is: "media.class=Audio/Sink sink_name=Virtual-Sink channel_map=..." or
+			//                "media.class=Audio/Source/Virtual sink_name=Virtual-Mic channel_map=..."
+			QString deviceName;
 			
 			// Find sink_name= in the module info string
 			int sinkNamePos = moduleInfo.indexOf("sink_name=");
@@ -1422,60 +1482,60 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 					endPos++;
 				}
 				
-				sinkName = moduleInfo.mid(startPos, endPos - startPos);
+				deviceName = moduleInfo.mid(startPos, endPos - startPos);
 			}
 
 			// If no sink_name parameter, check if we have a stored name for this module ID
-			if (sinkName.isEmpty()) {
+			if (deviceName.isEmpty()) {
 				if (m_virtual_sink_modules.contains(moduleId)) {
-					sinkName = m_virtual_sink_modules[moduleId];
+					deviceName = m_virtual_sink_modules[moduleId];
 				} else {
-					sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
+					deviceName = tr("Virtual Audio Device (Module %1)").arg(moduleId);
 				}
 			} else {
 				// Store the association if we don't have it yet
 				if (!m_virtual_sink_modules.contains(moduleId)) {
-					m_virtual_sink_modules[moduleId] = sinkName;
+					m_virtual_sink_modules[moduleId] = deviceName;
 				}
 			}
 
-			virtualSinks.append(sinkName);
-			sinkToModuleId[sinkName] = moduleId;
+			virtualDevices.append(deviceName);
+			deviceToModuleId[deviceName] = moduleId;
 		}
 	}
 
-	if (virtualSinks.isEmpty()) {
+	if (virtualDevices.isEmpty()) {
 		QMessageBox::information(this, tr("Information"),
-			tr("No virtual sinks found."));
+			tr("No virtual audio devices found."));
 		return;
 	}
 
-	// Let user select which sink to remove
+	// Let user select which device to remove
 	bool ok;
-	QString selectedSink = QInputDialog::getItem(this,
-		tr("Remove Virtual Sink"),
-		tr("Select virtual sink to remove:"),
-		virtualSinks,
+	QString selectedDevice = QInputDialog::getItem(this,
+		tr("Remove Virtual Audio Device"),
+		tr("Select virtual audio device to remove:"),
+		virtualDevices,
 		0,
 		false,
 		&ok);
 
-	if (!ok || selectedSink.isEmpty())
+	if (!ok || selectedDevice.isEmpty())
 		return;
 
-	QString moduleId = sinkToModuleId[selectedSink];
+	QString moduleId = deviceToModuleId[selectedDevice];
 	if (moduleId.isEmpty()) {
 		QMessageBox::warning(this, tr("Error"),
-			tr("Could not determine module ID for sink:\n\n%1\n\n"
+			tr("Could not determine module ID for device:\n\n%1\n\n"
 			   "You may need to remove it manually using:\n"
-			   "pactl unload-module <module-id>").arg(selectedSink));
+			   "pactl unload-module <module-id>").arg(selectedDevice));
 		return;
 	}
 
 	// Confirm removal
 	int ret = QMessageBox::question(this, tr("Confirm Removal"),
-		tr("Are you sure you want to remove virtual sink:\n\n%1\n\n(Module ID: %2)?")
-			.arg(selectedSink)
+		tr("Are you sure you want to remove virtual audio device:\n\n%1\n\n(Module ID: %2)?")
+			.arg(selectedDevice)
 			.arg(moduleId),
 		QMessageBox::Yes | QMessageBox::No,
 		QMessageBox::No);
@@ -1488,15 +1548,15 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 	unloadProcess.start("pactl", QStringList() << "unload-module" << moduleId);
 	if (!unloadProcess.waitForFinished(5000)) {
 		QMessageBox::warning(this, tr("Error"),
-			tr("Failed to remove virtual sink:\n\n%1\n\nTimeout waiting for pactl.").arg(selectedSink));
+			tr("Failed to remove virtual audio device:\n\n%1\n\nTimeout waiting for pactl.").arg(selectedDevice));
 		return;
 	}
 
 	if (unloadProcess.exitCode() != 0) {
 		QByteArray errorOutput = unloadProcess.readAllStandardError();
 		QMessageBox::warning(this, tr("Error"),
-			tr("Failed to remove virtual sink:\n\n%1\n\n%2")
-				.arg(selectedSink)
+			tr("Failed to remove virtual audio device:\n\n%1\n\n%2")
+				.arg(selectedDevice)
 				.arg(QString::fromUtf8(errorOutput)));
 		return;
 	}
@@ -1508,7 +1568,7 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 	viewRefresh();
 
 	m_ui.StatusBar->showMessage(
-		tr("Virtual sink '%1' removed successfully").arg(selectedSink), 3000);
+		tr("Virtual audio device '%1' removed successfully").arg(selectedDevice), 3000);
 }
 
 
