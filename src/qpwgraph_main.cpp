@@ -139,6 +139,8 @@ qpwgraph_main::qpwgraph_main (
 	m_thumb = nullptr;
 	m_thumb_update = 0;
 
+	m_virtual_sink_modules.clear();
+
 	QUndoStack *commands = m_ui.graphCanvas->commands();
 
 	QAction *undo_action = commands->createUndoAction(this, tr("&Undo"));
@@ -1354,11 +1356,20 @@ void qpwgraph_main::editCreateVirtualSink (void)
 		return;
 	}
 
+	// Capture the module ID from the output
+	QByteArray output = process.readAllStandardOutput();
+	QString moduleId = QString::fromUtf8(output).trimmed();
+	
+	// Store the association between module ID and sink name
+	if (!moduleId.isEmpty()) {
+		m_virtual_sink_modules[moduleId] = sinkName;
+	}
+
 	// Refresh the view to show the new sink
 	viewRefresh();
 
 	m_ui.StatusBar->showMessage(
-		tr("Virtual sink '%1' created successfully").arg(sinkName), 3000);
+		tr("Virtual sink '%1' created successfully (Module ID: %2)").arg(sinkName).arg(moduleId), 3000);
 }
 
 
@@ -1397,18 +1408,36 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 
 				// Extract sink_name from module info
 				// The format is: "module-null-sink sink_name=... media.class=..."
+				// Handle cases where sink_name might be quoted or have special chars
 				QString sinkName;
-				QStringList infoParts = moduleInfo.split(' ');
-				for (const QString& infoPart : infoParts) {
-					if (infoPart.startsWith("sink_name=")) {
-						sinkName = infoPart.mid(10); // Remove "sink_name="
-						break;
+				
+				// Find sink_name= in the module info string
+				int sinkNamePos = moduleInfo.indexOf("sink_name=");
+				if (sinkNamePos >= 0) {
+					// Start after "sink_name="
+					int startPos = sinkNamePos + 10;
+					int endPos = startPos;
+					
+					// Find the end of the sink_name value (next space or end of string)
+					while (endPos < moduleInfo.length() && moduleInfo[endPos] != ' ') {
+						endPos++;
 					}
+					
+					sinkName = moduleInfo.mid(startPos, endPos - startPos);
 				}
 
-				// If no sink_name parameter, use a default name with module ID
+				// If no sink_name parameter, check if we have a stored name for this module ID
 				if (sinkName.isEmpty()) {
-					sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
+					if (m_virtual_sink_modules.contains(moduleId)) {
+						sinkName = m_virtual_sink_modules[moduleId];
+					} else {
+						sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
+					}
+				} else {
+					// Store the association if we don't have it yet
+					if (!m_virtual_sink_modules.contains(moduleId)) {
+						m_virtual_sink_modules[moduleId] = sinkName;
+					}
 				}
 
 				virtualSinks.append(sinkName);
@@ -1473,6 +1502,9 @@ void qpwgraph_main::editRemoveVirtualSink (void)
 				.arg(QString::fromUtf8(errorOutput)));
 		return;
 	}
+
+	// Remove from our stored mapping
+	m_virtual_sink_modules.remove(moduleId);
 
 	// Refresh the view
 	viewRefresh();

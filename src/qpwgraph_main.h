@@ -264,6 +264,9 @@ private:
 	QActionGroup *m_thumb_mode;
 	qpwgraph_thumb *m_thumb;
 	int m_thumb_update;
+
+	// Virtual sink module ID to name mapping
+	QMap<QString, QString> m_virtual_sink_modules; // module ID -> sink name
 };
 
 
