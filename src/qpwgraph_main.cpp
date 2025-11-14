@@ -57,6 +57,11 @@
 
 #include <QActionGroup>
 
+#include <QProcess>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QMap>
+
 #include <QResizeEvent>
 #include <QCloseEvent>
 
@@ -328,6 +333,13 @@ qpwgraph_main::qpwgraph_main (
 	QObject::connect(m_ui.editRenameItemAction,
 		SIGNAL(triggered(bool)),
 		m_ui.graphCanvas, SLOT(renameItem()));
+
+	QObject::connect(m_ui.editCreateVirtualSinkAction,
+		SIGNAL(triggered(bool)),
+		SLOT(editCreateVirtualSink()));
+	QObject::connect(m_ui.editRemoveVirtualSinkAction,
+		SIGNAL(triggered(bool)),
+		SLOT(editRemoveVirtualSink()));
 
 	QObject::connect(m_ui.viewMenubarAction,
 		SIGNAL(triggered(bool)),
@@ -1299,6 +1311,174 @@ void qpwgraph_main::renamed ( qpwgraph_item *item, const QString& name )
 	qpwgraph_sect *sect = item_sect(item);
 	if (sect)
 		sect->renameItem(item, name);
+}
+
+
+// Virtual sink management slots.
+void qpwgraph_main::editCreateVirtualSink (void)
+{
+	bool ok;
+	QString sinkName = QInputDialog::getText(this,
+		tr("Create Virtual Sink"),
+		tr("Enter sink name:"),
+		QLineEdit::Normal,
+		"Virtual-Mic",
+		&ok);
+
+	if (!ok || sinkName.isEmpty())
+		return;
+
+	// Sanitize the sink name (remove spaces, special chars)
+	sinkName = sinkName.simplified().replace(' ', '-');
+
+	QProcess process;
+	QStringList arguments;
+	arguments << "load-module" << "module-null-sink"
+	          << "media.class=Audio/Sink"
+	          << QString("sink_name=%1").arg(sinkName)
+	          << "channel_map=front-left,front-right";
+
+	process.start("pactl", arguments);
+	if (!process.waitForFinished(5000)) {
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to create virtual sink:\n\n%1\n\nTimeout waiting for pactl.").arg(sinkName));
+		return;
+	}
+
+	if (process.exitCode() != 0) {
+		QByteArray errorOutput = process.readAllStandardError();
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to create virtual sink:\n\n%1\n\n%2")
+				.arg(sinkName)
+				.arg(QString::fromUtf8(errorOutput)));
+		return;
+	}
+
+	// Refresh the view to show the new sink
+	viewRefresh();
+
+	m_ui.StatusBar->showMessage(
+		tr("Virtual sink '%1' created successfully").arg(sinkName), 3000);
+}
+
+
+void qpwgraph_main::editRemoveVirtualSink (void)
+{
+	// List all modules to find module-null-sink instances
+	QProcess moduleProcess;
+	moduleProcess.start("pactl", QStringList() << "list" << "short" << "modules");
+	if (!moduleProcess.waitForFinished(5000)) {
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to list modules:\n\nTimeout waiting for pactl."));
+		return;
+	}
+
+	if (moduleProcess.exitCode() != 0) {
+		QByteArray errorOutput = moduleProcess.readAllStandardError();
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to list modules:\n\n%1")
+				.arg(QString::fromUtf8(errorOutput)));
+		return;
+	}
+
+	QByteArray moduleOutput = moduleProcess.readAllStandardOutput();
+	QStringList moduleLines = QString::fromUtf8(moduleOutput).split('\n', Qt::SkipEmptyParts);
+
+	// Extract sink names and module IDs from module-null-sink modules
+	QStringList virtualSinks;
+	QMap<QString, QString> sinkToModuleId; // sink name -> module ID
+
+	for (const QString& moduleLine : moduleLines) {
+		if (moduleLine.contains("module-null-sink")) {
+			QStringList parts = moduleLine.split('\t');
+			if (parts.size() >= 2) {
+				QString moduleId = parts[0];
+				QString moduleInfo = parts[1];
+
+				// Extract sink_name from module info
+				// The format is: "module-null-sink sink_name=... media.class=..."
+				QString sinkName;
+				QStringList infoParts = moduleInfo.split(' ');
+				for (const QString& infoPart : infoParts) {
+					if (infoPart.startsWith("sink_name=")) {
+						sinkName = infoPart.mid(10); // Remove "sink_name="
+						break;
+					}
+				}
+
+				// If no sink_name parameter, use a default name with module ID
+				if (sinkName.isEmpty()) {
+					sinkName = tr("Virtual Sink (Module %1)").arg(moduleId);
+				}
+
+				virtualSinks.append(sinkName);
+				sinkToModuleId[sinkName] = moduleId;
+			}
+		}
+	}
+
+	if (virtualSinks.isEmpty()) {
+		QMessageBox::information(this, tr("Information"),
+			tr("No virtual sinks found."));
+		return;
+	}
+
+	// Let user select which sink to remove
+	bool ok;
+	QString selectedSink = QInputDialog::getItem(this,
+		tr("Remove Virtual Sink"),
+		tr("Select virtual sink to remove:"),
+		virtualSinks,
+		0,
+		false,
+		&ok);
+
+	if (!ok || selectedSink.isEmpty())
+		return;
+
+	QString moduleId = sinkToModuleId[selectedSink];
+	if (moduleId.isEmpty()) {
+		QMessageBox::warning(this, tr("Error"),
+			tr("Could not determine module ID for sink:\n\n%1\n\n"
+			   "You may need to remove it manually using:\n"
+			   "pactl unload-module <module-id>").arg(selectedSink));
+		return;
+	}
+
+	// Confirm removal
+	int ret = QMessageBox::question(this, tr("Confirm Removal"),
+		tr("Are you sure you want to remove virtual sink:\n\n%1\n\n(Module ID: %2)?")
+			.arg(selectedSink)
+			.arg(moduleId),
+		QMessageBox::Yes | QMessageBox::No,
+		QMessageBox::No);
+
+	if (ret != QMessageBox::Yes)
+		return;
+
+	// Unload the module
+	QProcess unloadProcess;
+	unloadProcess.start("pactl", QStringList() << "unload-module" << moduleId);
+	if (!unloadProcess.waitForFinished(5000)) {
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to remove virtual sink:\n\n%1\n\nTimeout waiting for pactl.").arg(selectedSink));
+		return;
+	}
+
+	if (unloadProcess.exitCode() != 0) {
+		QByteArray errorOutput = unloadProcess.readAllStandardError();
+		QMessageBox::warning(this, tr("Error"),
+			tr("Failed to remove virtual sink:\n\n%1\n\n%2")
+				.arg(selectedSink)
+				.arg(QString::fromUtf8(errorOutput)));
+		return;
+	}
+
+	// Refresh the view
+	viewRefresh();
+
+	m_ui.StatusBar->showMessage(
+		tr("Virtual sink '%1' removed successfully").arg(selectedSink), 3000);
 }
 
 

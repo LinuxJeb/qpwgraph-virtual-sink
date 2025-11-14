@@ -96,6 +96,10 @@ protected slots:
 	// Item renaming slot.
 	void renamed(qpwgraph_item *item, const QString& name);
 
+	// Virtual sink management slots.
+	void editCreateVirtualSink();
+	void editRemoveVirtualSink();
+
 	// Graph view change slot.
 	void changed();
 

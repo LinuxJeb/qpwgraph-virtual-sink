@@ -109,6 +109,9 @@
     <addaction name="separator"/>
     <addaction name="editSearchItemAction"/>
     <addaction name="editRenameItemAction"/>
+    <addaction name="separator"/>
+    <addaction name="editCreateVirtualSinkAction"/>
+    <addaction name="editRemoveVirtualSinkAction"/>
    </widget>
    <widget class="QMenu" name="viewMenu">
     <property name="title">
@@ -664,6 +667,40 @@
    </property>
    <property name="shortcut">
     <string>F2</string>
+   </property>
+  </action>
+  <action name="editCreateVirtualSinkAction">
+   <property name="text">
+    <string>Create &amp;Virtual Sink...</string>
+   </property>
+   <property name="iconText">
+    <string>Create Virtual Sink</string>
+   </property>
+   <property name="toolTip">
+    <string>Create virtual sink</string>
+   </property>
+   <property name="statusTip">
+    <string>Create a new virtual sink (null sink)</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="editRemoveVirtualSinkAction">
+   <property name="text">
+    <string>Remove &amp;Virtual Sink...</string>
+   </property>
+   <property name="iconText">
+    <string>Remove Virtual Sink</string>
+   </property>
+   <property name="toolTip">
+    <string>Remove virtual sink</string>
+   </property>
+   <property name="statusTip">
+    <string>Remove an existing virtual sink</string>
+   </property>
+   <property name="shortcut">
+    <string/>
    </property>
   </action>
   <action name="viewMenubarAction">
